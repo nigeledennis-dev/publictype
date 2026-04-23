@@ -7,10 +7,10 @@ import { addPropertyControls, ControlType } from "framer"
  * Single-slug variable-font hero. Display text scales to the
  * container's HEIGHT (like Specimen — fontSize set imperatively
  * each layout tick) while the chosen axis (default wght) oscillates
- * on a sum-of-three-sines ramp — identical easing to
- * HybridHero so the motion never visibly repeats. Includes a pause
- * button and a TypeTester-style OT Features dropdown for manually
- * toggling supported OpenType features.
+ * end-to-end between its min and max with a sinusoidal ease —
+ * smooth at the extremes, never pausing mid-travel. Includes a
+ * pause button and a TypeTester-style OT Features dropdown for
+ * manually toggling supported OpenType features.
  *
  * Slug resolution: if the slug names a specific child, that child's
  * variable face is used; if it names a super-family (or standalone),
@@ -500,15 +500,13 @@ export default function WeightHero(props: Props) {
         }
     }, [padding, controlsGap, otOpen, showControls, fontsLoaded])
 
-    // Axis oscillation — sum of three sines with coprime-ish periods
-    // so the motion never visibly repeats. Same easing as HybridHero.
+    // Axis oscillation — sinusoidal ease between the axis extremes.
+    // One full period (min → max → min) takes `cycleSeconds`.
     React.useEffect(() => {
         if (!activeAxis) return
         let raf = 0
         const start = performance.now()
-        const P1 = Math.max(1, cycleSeconds)
-        const P2 = P1 * 0.6363
-        const P3 = P1 * 1.4142
+        const P = Math.max(1, cycleSeconds)
         let pausedAt = 0
         let pausedElapsed = 0
         let wasPaused = false
@@ -527,10 +525,7 @@ export default function WeightHero(props: Props) {
                 wasPaused = false
             }
             const t = (now - start - pausedElapsed) / 1000
-            const s1 = Math.sin((t * 2 * Math.PI) / P1)
-            const s2 = Math.sin((t * 2 * Math.PI) / P2 + 1.3)
-            const s3 = Math.sin((t * 2 * Math.PI) / P3 + 2.6)
-            const raw = (s1 * 0.55 + s2 * 0.3 + s3 * 0.15 + 1) / 2
+            const raw = (1 - Math.cos((t * 2 * Math.PI) / P)) / 2
             const next =
                 activeAxis.minValue +
                 raw * (activeAxis.maxValue - activeAxis.minValue)
@@ -1072,7 +1067,7 @@ addPropertyControls(WeightHero, {
         max: 60,
         step: 0.5,
         displayStepper: true,
-        description: "Base period of the axis oscillation",
+        description: "Seconds for one full min → max → min round-trip",
     },
     showControls: {
         type: ControlType.Boolean,
