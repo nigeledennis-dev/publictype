@@ -126,6 +126,7 @@ type Props = {
     padding: number
     controlsGap: number
     foreground: string
+    displayColor: string
     background: string
     accent: string
     accentForeground: string
@@ -142,6 +143,7 @@ export default function WeightHero(props: Props) {
         padding,
         controlsGap,
         foreground,
+        displayColor,
         background,
         accent,
         accentForeground,
@@ -989,7 +991,13 @@ export default function WeightHero(props: Props) {
                             ? `'${resolvedFamily}', sans-serif`
                             : "sans-serif",
                         fontWeight: 400,
-                        color: foreground,
+                        // Display text has its own color knob so CMS
+                        // records can bind a per-specimen color without
+                        // disturbing the top-bar foreground.
+                        color:
+                            displayColor && displayColor.trim().length > 0
+                                ? displayColor
+                                : foreground,
                         letterSpacing: "-0.01em",
                         lineHeight: 1,
                         whiteSpace: "nowrap",
@@ -1032,6 +1040,7 @@ WeightHero.defaultProps = {
     padding: 24,
     controlsGap: 24,
     foreground: "#000000",
+    displayColor: "",
     background: "#9DFFD6",
     accent: "#000000",
     accentForeground: "",
@@ -1100,6 +1109,12 @@ addPropertyControls(WeightHero, {
         type: ControlType.Color,
         title: "Foreground",
         defaultValue: "#000000",
+    },
+    displayColor: {
+        type: ControlType.Color,
+        title: "Display Color",
+        description:
+            "Color of the specimen text. Leave empty to inherit Foreground. CMS-bindable.",
     },
     background: {
         type: ControlType.Color,
