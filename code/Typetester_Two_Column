@@ -1,0 +1,1713 @@
+import * as React from "react"
+import { addPropertyControls, ControlType } from "framer"
+
+/**
+ * TYPE TESTER — TWO COLUMN
+ *
+ * Single-instance tester for Public Type where the specimen text flows
+ * across 2 newspaper-style columns below a shared top bar.
+ *
+ * Top bar:
+ *   [Font Family Pill ▾] [Style Pill ▾] | Size | Leading | Tracking | OT
+ *
+ * The font family pill is a dropdown across every sub-family in the
+ * super family (or the filtered subset in `subFamilySlugs`). The style
+ * pill selects a member of the currently-active sub-family. Changing
+ * the family swaps the row's active sub-family; the style is remapped
+ * to the nearest match in the new sub-family so the UI keeps its place.
+ *
+ * @framerSupportedLayoutWidth any
+ * @framerSupportedLayoutHeight any
+ * @framerIntrinsicWidth 1440
+ * @framerIntrinsicHeight 600
+ */
+export default function TypeTesterTwoColumn(props: TesterProps) {
+    return <MultiColumnTester {...props} columnCount={2} />
+}
+
+TypeTesterTwoColumn.defaultProps = DEFAULT_PROPS()
+
+addPropertyControls(TypeTesterTwoColumn, PROPERTY_CONTROLS())
+
+// ============================================================
+// Shared implementation (copy-pasted into TypeTesterThreeColumn too)
+// ============================================================
+
+type TesterProps = {
+    collectionSlug: string
+    subFamilySlugs: string
+    styles: string
+    foreground: string
+    background: string
+    backgroundImage: string
+    accent: string
+    stylePillColor: string
+    weightPillColor: string
+    weightPillForeground: string
+    sampleText: string
+    fontdueUrl: string
+}
+
+function DEFAULT_PROPS(): TesterProps {
+    return {
+        collectionSlug: "cina-geo",
+        subFamilySlugs: "",
+        styles: "",
+        foreground: "#000000",
+        background: "#9DFFD6",
+        backgroundImage: "",
+        accent: "#000000",
+        stylePillColor: "#000000",
+        weightPillColor: "#000000",
+        weightPillForeground: "#FFFFFF",
+        sampleText:
+            "Cina GEO is a geometric sans built around control, clarity, and presence. Its forms begin with simple structures, then adjust where pure geometry alone is not enough. The result is a typeface that feels measured but not mechanical, confident without becoming cold. It is designed to hold together across identity systems, editorial layouts, interfaces, and signage, where consistency matters as much as personality.",
+        fontdueUrl: "https://www.publictype.us",
+    }
+}
+
+function PROPERTY_CONTROLS() {
+    return {
+        collectionSlug: {
+            type: ControlType.String,
+            title: "Super Family Slug",
+            defaultValue: "cina-geo",
+            description:
+                "Fontdue super family slug (e.g. 'cina-geo'). A child slug also works — the component walks up to the super family.",
+        },
+        subFamilySlugs: {
+            type: ControlType.String,
+            title: "Sub-Family Slugs",
+            defaultValue: "",
+            displayTextArea: true,
+            description:
+                "Optional comma-separated child slugs to show in the family dropdown (e.g. 'cina-geo-standard, cina-geo-mono'). Leave empty for all children. CMS-bindable.",
+        },
+        styles: {
+            type: ControlType.String,
+            title: "Styles",
+            defaultValue: "",
+            description:
+                "Optional comma-separated style names (e.g. 'Regular, Bold'). Leave empty to auto-fetch from Fontdue. CMS-bindable.",
+            displayTextArea: true,
+        },
+        foreground: {
+            type: ControlType.Color,
+            title: "Foreground",
+            defaultValue: "#000000",
+        },
+        background: {
+            type: ControlType.Color,
+            title: "Background",
+            defaultValue: "#9DFFD6",
+        },
+        backgroundImage: {
+            type: ControlType.Image,
+            title: "Background Image",
+            description: "Optional background image (cover fill, CMS-bindable)",
+        },
+        accent: {
+            type: ControlType.Color,
+            title: "Accent",
+            defaultValue: "#000000",
+            description: "Font name pill background (CMS-bindable)",
+        },
+        stylePillColor: {
+            type: ControlType.Color,
+            title: "Style Pill",
+            defaultValue: "#000000",
+            description: "Style dropdown pill background (CMS-bindable)",
+        },
+        weightPillColor: {
+            type: ControlType.Color,
+            title: "Weight Pill BG",
+            defaultValue: "#000000",
+            description: "Weight slider pill background (CMS-bindable)",
+        },
+        weightPillForeground: {
+            type: ControlType.Color,
+            title: "Weight Pill FG",
+            defaultValue: "#FFFFFF",
+            description: "Weight slider pill foreground (CMS-bindable)",
+        },
+        sampleText: {
+            type: ControlType.String,
+            title: "Sample Text",
+            defaultValue: DEFAULT_PROPS().sampleText,
+            displayTextArea: true,
+            description: "Specimen text (CMS-bindable)",
+        },
+        fontdueUrl: {
+            type: ControlType.String,
+            title: "Fontdue URL",
+            defaultValue: "https://www.publictype.us",
+            description: "Your Fontdue site URL (no trailing slash)",
+        },
+    }
+}
+
+// ---------- Color + contrast helpers ----------
+function parseColor(c: string): [number, number, number] | null {
+    if (!c) return null
+    const s = c.trim()
+    if (s.startsWith("#")) {
+        let hex = s.slice(1)
+        if (hex.length === 3)
+            hex = hex
+                .split("")
+                .map((x) => x + x)
+                .join("")
+        if (hex.length >= 6) {
+            return [
+                parseInt(hex.slice(0, 2), 16),
+                parseInt(hex.slice(2, 4), 16),
+                parseInt(hex.slice(4, 6), 16),
+            ]
+        }
+    }
+    const m = s.match(/rgba?\(([^)]+)\)/i)
+    if (m) {
+        const p = m[1].split(",").map((x) => parseFloat(x.trim()))
+        if (p.length >= 3) return [p[0], p[1], p[2]]
+    }
+    return null
+}
+
+function getContrastText(bg: string): string {
+    const rgb = parseColor(bg)
+    if (!rgb) return "#000000"
+    const [r, g, b] = rgb.map((v) => {
+        const s = v / 255
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+    })
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return lum > 0.179 ? "#000000" : "#FFFFFF"
+}
+
+// ---------- OT feature metadata ----------
+const FEATURE_NAMES: Record<string, string> = {
+    aalt: "Access All Alternates",
+    case: "Case-Sensitive Forms",
+    frac: "Fractions",
+    lnum: "Lining Figures",
+    onum: "Oldstyle Figures",
+    ordn: "Ordinals",
+    pnum: "Proportional Figures",
+    tnum: "Tabular Figures",
+    sups: "Superscript",
+    subs: "Subscript",
+    smcp: "Small Caps",
+    c2sc: "Caps to Small Caps",
+    dlig: "Discretionary Ligatures",
+    sinf: "Scientific Inferiors",
+    fwid: "Full Width",
+    hwid: "Half Width",
+    numr: "Numerators",
+    dnom: "Denominators",
+}
+const DEFAULT_FEATURES = new Set([
+    "liga",
+    "kern",
+    "calt",
+    "ccmp",
+    "rlig",
+    "mark",
+    "mkmk",
+])
+
+// The Fontdue-hosted stylesheet for Cina Sans (the UI font). The URL
+// is the same one Framer injects when a page uses Cina Sans as a text
+// layer. Referencing it ourselves guarantees "Cina Sans Regular" and
+// siblings are registered even on pages where Framer doesn't load it.
+const UI_FONT_STYLESHEET =
+    "https://fonts.fontdue.com/publictype/css/Rm9udENvbGxlY3Rpb246MTgyNjMzMDk2NzA5NTEyMDcwNw%3D%3D.css"
+function ensureUIFontLoaded() {
+    if (typeof document === "undefined") return
+    if (document.querySelector('link[data-public-type-ui="true"]')) return
+    const link = document.createElement("link")
+    link.rel = "stylesheet"
+    link.href = UI_FONT_STYLESHEET
+    link.setAttribute("data-public-type-ui", "true")
+    document.head.appendChild(link)
+}
+
+// @font-face injector. We register each face under its unique
+// `${cssFamily} ${styleName}` identifier (matching how Fontdue keys its
+// runtime) and inject every style via webfontSources URLs from GraphQL.
+// Bypasses <fontdue-type-testers> entirely — that element silently
+// skips italics and sometimes fails to register at all on Framer.
+const INJECTED_FACE_KEYS = new Set<string>()
+function injectFontFaces(cssRules: string, key: string) {
+    if (typeof document === "undefined") return
+    if (INJECTED_FACE_KEYS.has(key)) return
+    INJECTED_FACE_KEYS.add(key)
+    const style = document.createElement("style")
+    style.setAttribute("data-fontdue-tester", key)
+    style.textContent = cssRules
+    document.head.appendChild(style)
+}
+function buildFontFaceCss(
+    family: string,
+    sources: Array<{ format: string; url: string }>
+): string {
+    // Prefer woff2, fall back to woff. Use font-style: normal even on
+    // italic files — we register each italic under its own unique family
+    // name ("Cina GEO Thin Italic"), so italic-ness is baked into the
+    // family. Setting font-style: italic would cause the browser to
+    // synthesize italic on top of an already-italic file.
+    const ordered = [...sources].sort((a, b) => {
+        const score = (f: string) => (f === "woff2" ? 0 : f === "woff" ? 1 : 2)
+        return score(a.format) - score(b.format)
+    })
+    const srcList = ordered
+        .map((s) => `url("${s.url}") format("${s.format}")`)
+        .join(", ")
+    return `@font-face{font-family:"${family}";font-style:normal;font-weight:100 900;font-display:swap;src:local(""),${srcList};}`
+}
+
+type StylisticSet = { featureName: string; humanName: string }
+type StyleFeatures = {
+    supportedFeatures: string[]
+    stylisticSetNames: StylisticSet[]
+}
+type VariableAxisInfo = {
+    axis: string
+    name: string
+    minValue: number
+    maxValue: number
+}
+type StyleAxisData = {
+    variableAxes: VariableAxisInfo[]
+    cssWeight: number
+}
+
+type ResolvedStyle = {
+    name: string
+    cssFamily: string
+    cssWeight: number
+    isItalic: boolean
+    isVariable: boolean
+    variableAxes: VariableAxisInfo[]
+    fontFeatures: StyleFeatures | null
+    /** Registered font-family identifier for this style
+     *  (e.g. "Cina GEO Thin Italic", "Cina GEO Mono Variable") */
+    fullFamily: string
+}
+
+type SubFamilyData = {
+    /** Human-readable name, e.g. "Cina GEO Mono" */
+    name: string
+    /** Fontdue slug, e.g. "cina-geo-mono" */
+    slug: string
+    isVariable: boolean
+    styles: ResolvedStyle[]
+}
+
+// ---------- Core multi-column tester ----------
+function MultiColumnTester({
+    collectionSlug,
+    subFamilySlugs: subFamilySlugsProp,
+    styles: stylesOverride,
+    foreground,
+    background,
+    backgroundImage,
+    accent,
+    stylePillColor,
+    weightPillColor,
+    weightPillForeground,
+    sampleText,
+    fontdueUrl,
+    columnCount,
+}: TesterProps & { columnCount: number }) {
+    // Fontdue registers each Cina Sans weight as its OWN family name:
+    //   "Cina Sans Thin", "Cina Sans Regular", "Cina Sans Medium", ...
+    // NOT plain "Cina Sans" (which matches nothing). This matches how
+    // the Framer-deployed site already references these fonts.
+    const uiFontChain = "'Cina Sans Regular', sans-serif"
+
+    // Guarantee the UI font is loaded, regardless of whether the page's
+    // Framer typography happens to reference Cina Sans elsewhere.
+    React.useEffect(() => {
+        ensureUIFontLoaded()
+    }, [])
+
+    // Parse optional CMS/user-supplied override list
+    const overrideStyleNames = React.useMemo(
+        () =>
+            (stylesOverride || "")
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean),
+        [stylesOverride]
+    )
+
+    // Parse sub-family filter (lowercased, trimmed)
+    const subFamilyFilter = React.useMemo(
+        () =>
+            (subFamilySlugsProp || "")
+                .split(",")
+                .map((s) => s.trim().toLowerCase())
+                .filter(Boolean),
+        [subFamilySlugsProp]
+    )
+    const subFamilyFilterKey = subFamilyFilter.join("|")
+
+    // Super-family data + active sub-family
+    const [superFamilyName, setSuperFamilyName] = React.useState("")
+    // Lazy-load gate — keeps the tester hidden until every @font-face
+    // we just injected has finished downloading. Avoids the flash
+    // where the specimen text paints at sans-serif metrics first.
+    const [fontsLoaded, setFontsLoaded] = React.useState(false)
+    const [subFamilies, setSubFamilies] = React.useState<SubFamilyData[]>([])
+    const [activeSubFamilySlug, setActiveSubFamilySlug] =
+        React.useState<string>("")
+
+    // UI state
+    const [selectedStyle, setSelectedStyle] = React.useState("")
+    const [size, setSize] = React.useState(48)
+    const [leading, setLeading] = React.useState(1.15)
+    const [tracking, setTracking] = React.useState(0)
+    const [weight, setWeight] = React.useState<number | null>(null)
+    const [activeFeatures, setActiveFeatures] = React.useState<Set<string>>(
+        new Set()
+    )
+    const [otOpen, setOtOpen] = React.useState(false)
+    const [styleMenuOpen, setStyleMenuOpen] = React.useState(false)
+    const [subMenuOpen, setSubMenuOpen] = React.useState(false)
+    const stylePillRef = React.useRef<HTMLDivElement | null>(null)
+    const subPillRef = React.useRef<HTMLDivElement | null>(null)
+    const rootRef = React.useRef<HTMLDivElement | null>(null)
+
+    // Force the tester to fill the widest ancestor (typically the
+    // Framer page frame) even when its direct parent is set to
+    // "Hug" — otherwise `width: 100%` collapses to content width
+    // because the parent is sizing itself to US.
+    React.useEffect(() => {
+        if (typeof window === "undefined") return
+        const el = rootRef.current
+        if (!el) return
+        const update = () => {
+            let node: HTMLElement | null = el.parentElement
+            let widest = 0
+            while (node) {
+                const w = node.getBoundingClientRect().width
+                if (w > widest) widest = w
+                if (node === document.body) break
+                node = node.parentElement
+            }
+            if (widest > 0) {
+                el.style.minWidth = widest + "px"
+            }
+        }
+        update()
+        const ro = new ResizeObserver(update)
+        ro.observe(document.body)
+        if (el.parentElement) ro.observe(el.parentElement)
+        return () => ro.disconnect()
+    }, [])
+
+    // Close either menu on any outside mousedown
+    React.useEffect(() => {
+        if (!styleMenuOpen && !subMenuOpen) return
+        const onDown = (e: MouseEvent) => {
+            const sp = stylePillRef.current
+            const fp = subPillRef.current
+            if (styleMenuOpen && sp && !sp.contains(e.target as Node)) {
+                setStyleMenuOpen(false)
+            }
+            if (subMenuOpen && fp && !fp.contains(e.target as Node)) {
+                setSubMenuOpen(false)
+            }
+        }
+        document.addEventListener("mousedown", onDown)
+        return () => document.removeEventListener("mousedown", onDown)
+    }, [styleMenuOpen, subMenuOpen])
+
+    // Track whether the user has manually picked a style.
+    // When true, we stop auto-upgrading to a feature-rich default.
+    const userTouchedRef = React.useRef(false)
+
+    // Derived: active sub-family (falls back to first if selected slug
+    // isn't in the list).
+    const activeSub: SubFamilyData | null = React.useMemo(() => {
+        if (subFamilies.length === 0) return null
+        return (
+            subFamilies.find((sf) => sf.slug === activeSubFamilySlug) ||
+            subFamilies[0]
+        )
+    }, [subFamilies, activeSubFamilySlug])
+
+    // Display name for the active sub-family pill. Uses child name when
+    // available, falls back to the super family name.
+    const collectionName = activeSub?.name || superFamilyName || ""
+    const featuresLoaded = subFamilies.length > 0
+
+    // Style list driving the style pill dropdown
+    const fetchedStyleNames = React.useMemo(
+        () => activeSub?.styles.map((s) => s.name) ?? [],
+        [activeSub]
+    )
+
+    // Feature lookup keyed by plain style name AND full family
+    const featureMap = React.useMemo(() => {
+        const m: Record<string, StyleFeatures> = {}
+        for (const s of activeSub?.styles || []) {
+            if (s.fontFeatures) {
+                m[s.name] = s.fontFeatures
+                m[s.fullFamily] = s.fontFeatures
+            }
+        }
+        return m
+    }, [activeSub])
+
+    // Axis map keyed similarly
+    const axisMap = React.useMemo(() => {
+        const m: Record<string, StyleAxisData> = {}
+        for (const s of activeSub?.styles || []) {
+            if (s.variableAxes.length > 0) {
+                const entry: StyleAxisData = {
+                    variableAxes: s.variableAxes,
+                    cssWeight: s.cssWeight,
+                }
+                m[s.name] = entry
+                m[s.fullFamily] = entry
+            }
+        }
+        return m
+    }, [activeSub])
+
+    // Intersect user override list with the current sub-family. If the
+    // override doesn't match anything here, show every style so the
+    // dropdown stays useful as the user switches sub-families.
+    const styleNames = React.useMemo(() => {
+        if (overrideStyleNames.length === 0) return fetchedStyleNames
+        const intersected = overrideStyleNames.filter((n) =>
+            fetchedStyleNames.includes(n)
+        )
+        return intersected.length > 0 ? intersected : fetchedStyleNames
+    }, [overrideStyleNames, fetchedStyleNames])
+
+    // Forgiving featureMap lookup: handles CMS overrides where the
+    // provided style name differs from Fontdue's key in whitespace,
+    // casing, or collection prefix.
+    const lookupFeatures = React.useCallback(
+        (style: string): StyleFeatures | undefined => {
+            if (!style) return undefined
+            if (featureMap[style]) return featureMap[style]
+            const norm = (s: string) =>
+                s.toLowerCase().replace(/\s+/g, "").trim()
+            const needle = norm(style)
+            const keys = Object.keys(featureMap)
+            for (const k of keys) if (norm(k) === needle) return featureMap[k]
+            for (const k of keys)
+                if (norm(k).endsWith(needle)) return featureMap[k]
+            for (const k of keys)
+                if (needle.endsWith(norm(k))) return featureMap[k]
+            return undefined
+        },
+        [featureMap]
+    )
+
+    const hasToggleableFeatures = React.useCallback(
+        (style: string) => {
+            const f = lookupFeatures(style)
+            return (f?.supportedFeatures || []).some(
+                (t) => !DEFAULT_FEATURES.has(t)
+            )
+        },
+        [lookupFeatures]
+    )
+
+    // Keep selectedStyle in sync with the current sub-family's styles.
+    // Default pick is "Regular" — falls back to Medium, then Bold,
+    // then any non-italic, then the first style. Respects
+    // userTouchedRef so the user's explicit choice isn't overridden.
+    React.useEffect(() => {
+        if (styleNames.length === 0) {
+            setSelectedStyle("")
+            return
+        }
+        const currentIsValid =
+            selectedStyle && styleNames.includes(selectedStyle)
+        if (currentIsValid && userTouchedRef.current) return
+        // If the user had something picked, try to remap by italic state
+        if (userTouchedRef.current && selectedStyle && activeSub) {
+            const wantItalic = /italic/i.test(selectedStyle)
+            const remap = activeSub.styles.find(
+                (s) => s.isItalic === wantItalic && styleNames.includes(s.name)
+            )
+            if (remap) {
+                setSelectedStyle(remap.name)
+                return
+            }
+        }
+        const preferred =
+            styleNames.find((n) => /^regular$/i.test(n)) ||
+            styleNames.find((n) => /^medium$/i.test(n)) ||
+            styleNames.find((n) => /^bold$/i.test(n)) ||
+            styleNames.find((n) => !/italic/i.test(n)) ||
+            styleNames[0]
+        setSelectedStyle(preferred)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [styleNames.join("|")])
+
+    // ---- Fetch super family data ----
+    React.useEffect(() => {
+        if (!collectionSlug) return
+        let cancelled = false
+        const query = `{
+  viewer {
+    fontCollections(first: 100) {
+      edges {
+        node {
+          name
+          slug { name }
+          collectionType
+          parent { slug { name } }
+          fontStyles {
+            name
+            cssFamily
+            cssWeight
+            cssStyle
+            webfontSources { format url }
+            variableAxes { axis name minValue maxValue }
+            fontFeatures {
+              supportedFeatures
+              stylisticSetNames { featureName humanName }
+            }
+          }
+          children {
+            name
+            slug { name }
+            fontStyles {
+              name
+              cssFamily
+              cssWeight
+              cssStyle
+              webfontSources { format url }
+              variableAxes { axis name minValue maxValue }
+              fontFeatures {
+                supportedFeatures
+                stylisticSetNames { featureName humanName }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+        fetch(`${fontdueUrl}/graphql`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query }),
+        })
+            .then((r) => r.json())
+            .then((data) => {
+                if (cancelled) return
+                const edges = data?.data?.viewer?.fontCollections?.edges || []
+                const target = collectionSlug.toLowerCase().trim()
+
+                // 1. Find super family by slug
+                let superNode: any = edges.find(
+                    ({ node }: any) =>
+                        node?.collectionType === "superfamily" &&
+                        (node?.slug?.name || "").toLowerCase().trim() === target
+                )?.node
+
+                // 2. If input is a child slug, walk up to super family.
+                //    Remember the specific child so we can auto-restrict
+                //    when no explicit filter was provided (back-compat
+                //    with single-slug CMS bindings).
+                let walkedUpFromChild: string | null = null
+                if (!superNode) {
+                    const childNode = edges.find(
+                        ({ node }: any) =>
+                            (node?.slug?.name || "").toLowerCase().trim() ===
+                                target && node?.parent?.slug?.name
+                    )?.node
+                    if (childNode?.parent?.slug?.name) {
+                        walkedUpFromChild = target
+                        const parentSlug = childNode.parent.slug.name
+                            .toLowerCase()
+                            .trim()
+                        superNode = edges.find(
+                            ({ node }: any) =>
+                                node?.collectionType === "superfamily" &&
+                                (node?.slug?.name || "")
+                                    .toLowerCase()
+                                    .trim() === parentSlug
+                        )?.node
+                    }
+                }
+
+                // 3. Fallback: no super family — treat the input as a
+                //    standalone family and synthesize a single-child
+                //    super node so the rest of the code stays uniform.
+                if (!superNode) {
+                    const plain = edges.find(
+                        ({ node }: any) =>
+                            (node?.slug?.name || "").toLowerCase().trim() ===
+                                target && (node?.fontStyles?.length || 0) > 0
+                    )?.node
+                    if (plain) {
+                        superNode = {
+                            name: plain.name,
+                            slug: plain.slug,
+                            children: [
+                                {
+                                    name: plain.name,
+                                    slug: plain.slug,
+                                    fontStyles: plain.fontStyles,
+                                },
+                            ],
+                        }
+                    }
+                }
+
+                if (!superNode) return
+
+                // 4. Gather children with styles. Apply filter:
+                //    - Explicit `subFamilySlugs` prop wins.
+                //    - Else if we walked up from a specific child slug,
+                //      auto-restrict to that child (back-compat).
+                //    - Else include every child with styles.
+                const rawChildren = (superNode.children || []) as any[]
+                const withStyles = rawChildren.filter(
+                    (c) => (c?.fontStyles?.length || 0) > 0
+                )
+                const effectiveFilter =
+                    subFamilyFilter.length > 0
+                        ? subFamilyFilter
+                        : walkedUpFromChild
+                          ? [walkedUpFromChild]
+                          : []
+                let filtered = withStyles
+                if (effectiveFilter.length > 0) {
+                    const matched = withStyles.filter((c) =>
+                        effectiveFilter.includes(
+                            (c?.slug?.name || "").toLowerCase().trim()
+                        )
+                    )
+                    if (matched.length > 0) filtered = matched
+                }
+                if (filtered.length === 0) return
+
+                // 5. Build SubFamilyData list + collect @font-face rules
+                const subs: SubFamilyData[] = []
+                const faceRules: string[] = []
+                for (const c of filtered) {
+                    const childStyles = (c.fontStyles || []) as any[]
+                    const cIsVariable = childStyles.some(
+                        (s: any) => (s.variableAxes || []).length > 0
+                    )
+                    const resolved: ResolvedStyle[] = []
+                    for (const s of childStyles) {
+                        const cssFamily = s.cssFamily || ""
+                        const sIsVariable = (s.variableAxes || []).length > 0
+                        const fullFamily = sIsVariable
+                            ? cssFamily
+                            : cssFamily && s.name
+                              ? `${cssFamily} ${s.name}`
+                              : cssFamily
+                        resolved.push({
+                            name: s.name,
+                            cssFamily,
+                            cssWeight: parseInt(s.cssWeight, 10) || 400,
+                            isItalic:
+                                /italic/i.test(s.name) ||
+                                /italic/i.test(s.cssStyle || ""),
+                            isVariable: sIsVariable,
+                            variableAxes: s.variableAxes || [],
+                            fontFeatures: s.fontFeatures || null,
+                            fullFamily,
+                        })
+                        const sources = s.webfontSources || []
+                        if (fullFamily && sources.length > 0) {
+                            faceRules.push(
+                                buildFontFaceCss(fullFamily, sources)
+                            )
+                        }
+                    }
+                    subs.push({
+                        name: c.name || "",
+                        slug: (c.slug?.name || "").trim(),
+                        isVariable: cIsVariable,
+                        styles: resolved,
+                    })
+                }
+
+                // 6. Inject every @font-face in the super family at once.
+                //    Switching sub-families is then instant (no reload).
+                const superSlug =
+                    (superNode.slug?.name || "").trim() || collectionSlug
+                if (faceRules.length > 0) {
+                    injectFontFaces(
+                        faceRules.join("\n"),
+                        `fontdue:${superSlug}`
+                    )
+                }
+
+                // 7. Commit state. Default active sub-family is the
+                //    first non-variable one (or first overall).
+                setSuperFamilyName(superNode.name || "")
+                setSubFamilies(subs)
+                const initial = subs.find((s) => !s.isVariable) || subs[0]
+                setActiveSubFamilySlug(initial?.slug || "")
+
+                // Wait for every registered family to download, then
+                // reveal the tester.
+                const fonts: FontFaceSet | undefined =
+                    typeof document !== "undefined"
+                        ? (document as any).fonts
+                        : undefined
+                const reveal = () => {
+                    if (!cancelled) setFontsLoaded(true)
+                }
+                if (fonts && subs.length > 0) {
+                    const families = subs.flatMap((sf) =>
+                        sf.styles.map((s) => s.fullFamily).filter(Boolean)
+                    )
+                    Promise.all(
+                        families.map((f) =>
+                            fonts.load(`72px "${f}"`).catch(() => null)
+                        )
+                    ).then(reveal)
+                } else {
+                    reveal()
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setFontsLoaded(true)
+            })
+        const timeout = window.setTimeout(() => {
+            if (!cancelled) setFontsLoaded(true)
+        }, 3000)
+        return () => {
+            cancelled = true
+            window.clearTimeout(timeout)
+        }
+    }, [collectionSlug, fontdueUrl, subFamilyFilterKey])
+
+    // Feature list for the current style (via forgiving lookup).
+    const currentFeatures = React.useMemo(
+        () => lookupFeatures(selectedStyle),
+        [selectedStyle, lookupFeatures]
+    )
+    const ssMap = new Map(
+        (currentFeatures?.stylisticSetNames || []).map((s) => [
+            s.featureName,
+            s.humanName,
+        ])
+    )
+    const toggleable = (currentFeatures?.supportedFeatures || []).filter(
+        (f) => !DEFAULT_FEATURES.has(f)
+    )
+    const getFeatureLabel = (tag: string) =>
+        ssMap.get(tag) || FEATURE_NAMES[tag] || tag
+
+    const fontFeatureSettings =
+        activeFeatures.size > 0
+            ? Array.from(activeFeatures)
+                  .map((f) => `'${f}' 1`)
+                  .join(", ")
+            : "normal"
+
+    // Variable weight axis for current style (if any).
+    const currentAxisData = React.useMemo(() => {
+        if (!selectedStyle) return null
+        if (axisMap[selectedStyle]) return axisMap[selectedStyle]
+        const norm = (s: string) => s.toLowerCase().replace(/\s+/g, "").trim()
+        const needle = norm(selectedStyle)
+        for (const k of Object.keys(axisMap)) {
+            if (norm(k) === needle) return axisMap[k]
+        }
+        return null
+    }, [selectedStyle, axisMap])
+
+    const wghtAxis = React.useMemo(
+        () =>
+            currentAxisData?.variableAxes.find(
+                (a) => a.axis.toLowerCase() === "wght"
+            ) || null,
+        [currentAxisData]
+    )
+
+    // Reset weight to the style's default when switching styles
+    React.useEffect(() => {
+        if (wghtAxis && currentAxisData) {
+            setWeight(currentAxisData.cssWeight)
+        } else {
+            setWeight(null)
+        }
+    }, [selectedStyle, wghtAxis, currentAxisData])
+
+    // Drop any active features that the newly selected style doesn't support
+    React.useEffect(() => {
+        setActiveFeatures((prev) => {
+            let changed = false
+            const next = new Set<string>()
+            for (const f of prev) {
+                if (toggleable.includes(f)) next.add(f)
+                else changed = true
+            }
+            return changed ? next : prev
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedStyle])
+
+    // Contrast-aware pill text colors
+    const namePillBg = accent && accent.trim() ? accent : foreground
+    const namePillText = getContrastText(namePillBg)
+    const stylePillBg =
+        stylePillColor && stylePillColor.trim() ? stylePillColor : foreground
+    const stylePillText = getContrastText(stylePillBg)
+
+    // Strip the collection name off a style so the dropdown shows just
+    // "Medium" instead of "Ghostly Gothic Medium". If nothing remains,
+    // fall back to "Regular".
+    const displayStyle = React.useCallback(
+        (s: string) => {
+            if (!s) return "Regular"
+            const prefix = (collectionName || "").trim()
+            if (!prefix) return s
+            const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+            const cleaned = s
+                .replace(new RegExp(`^${escaped}\\s*`, "i"), "")
+                .trim()
+            return cleaned || "Regular"
+        },
+        [collectionName]
+    )
+
+    // ---------- Slider drag helper ----------
+    const handleDrag = (
+        e: React.MouseEvent | React.TouchEvent,
+        min: number,
+        max: number,
+        step: number,
+        onChange: (v: number) => void
+    ) => {
+        e.preventDefault()
+        const track = e.currentTarget as HTMLElement
+        const rect = track.getBoundingClientRect()
+        const move = (ev: MouseEvent | TouchEvent) => {
+            const clientX = "touches" in ev ? ev.touches[0].clientX : ev.clientX
+            let pct = (clientX - rect.left) / rect.width
+            pct = Math.max(0, Math.min(1, pct))
+            let val = min + pct * (max - min)
+            val = Math.round(val / step) * step
+            val = Math.max(min, Math.min(max, val))
+            onChange(parseFloat(val.toFixed(4)))
+        }
+        const up = () => {
+            window.removeEventListener("mousemove", move)
+            window.removeEventListener("mouseup", up)
+            window.removeEventListener("touchmove", move)
+            window.removeEventListener("touchend", up)
+        }
+        move(e.nativeEvent as any)
+        window.addEventListener("mousemove", move)
+        window.addEventListener("mouseup", up)
+        window.addEventListener("touchmove", move)
+        window.addEventListener("touchend", up)
+    }
+    const pct = (v: number, min: number, max: number) =>
+        `${((v - min) / (max - min)) * 100}%`
+
+    // ---------- Styles ----------
+    const barStyle: React.CSSProperties = {
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "stretch",
+        height: 27,
+        width: "100%",
+        padding: "0 24px",
+        boxSizing: "border-box",
+        gap: 0,
+    }
+
+    const leftClusterStyle: React.CSSProperties = {
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "stretch",
+        flex: "0 0 25%",
+        minWidth: 0,
+        height: "100%",
+    }
+
+    const namePillStyle: React.CSSProperties = {
+        flex: "1 1 0",
+        display: "flex",
+        alignItems: "center",
+        background: namePillBg,
+        borderRadius: 4,
+        padding: "8px 16px",
+        gap: 16,
+        height: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
+        overflow: "visible",
+        position: "relative",
+    }
+    const namePillLabelStyle: React.CSSProperties = {
+        fontFamily: uiFontChain,
+        fontSize: 16,
+        fontWeight: 400,
+        color: namePillText,
+        lineHeight: "22.4px",
+        whiteSpace: "nowrap",
+        paddingTop: 2,
+    }
+    const namePillLineStyle: React.CSSProperties = {
+        flex: "1 1 0",
+        height: 1,
+        minWidth: 24,
+        background: namePillText,
+    }
+
+    // Family dropdown menu (mirrors the style menu visuals but uses the
+    // name pill's colors)
+    const subMenuWrapStyle: React.CSSProperties = {
+        position: "absolute",
+        top: "calc(100% + 6px)",
+        left: 0,
+        minWidth: "100%",
+        zIndex: 10,
+        overflow: "hidden",
+        maxHeight: subMenuOpen ? 720 : 0,
+        transition: "max-height 0.35s ease",
+        pointerEvents: subMenuOpen ? "auto" : "none",
+    }
+    const subMenuListStyle: React.CSSProperties = {
+        background: namePillBg,
+        color: namePillText,
+        borderRadius: 14,
+        padding: "8px 0",
+        maxHeight: 720,
+        overflowY: "auto",
+        opacity: subMenuOpen ? 1 : 0,
+        transform: subMenuOpen ? "translateY(0)" : "translateY(-4px)",
+        transition: "opacity 0.25s ease 0.05s, transform 0.3s ease",
+    }
+
+    // Slider module holds the 3 sliders. It grows to fill the space left
+    // between the left cluster and the OT pill.
+    const sliderModuleStyle: React.CSSProperties = {
+        flex: "1 1 0",
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "center",
+        height: "100%",
+        minWidth: 0,
+    }
+
+    const stylePillStyleBase: React.CSSProperties = {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "flex-start",
+        gap: 12,
+        height: "100%",
+        padding: "8px 16px",
+        background: stylePillBg,
+        color: stylePillText,
+        borderRadius: 9999,
+        fontFamily: uiFontChain,
+        fontSize: 16,
+        fontWeight: 400,
+        lineHeight: "22.4px",
+        cursor: "pointer",
+        userSelect: "none",
+        position: "relative",
+        whiteSpace: "nowrap",
+        flexShrink: 0,
+        boxSizing: "border-box",
+    }
+
+    const styleMenuWrapStyle: React.CSSProperties = {
+        position: "absolute",
+        top: "calc(100% + 6px)",
+        left: 0,
+        minWidth: "100%",
+        zIndex: 10,
+        overflow: "hidden",
+        maxHeight: styleMenuOpen ? 720 : 0,
+        transition: "max-height 0.35s ease",
+        pointerEvents: styleMenuOpen ? "auto" : "none",
+    }
+    const styleMenuListStyle: React.CSSProperties = {
+        background: stylePillBg,
+        color: stylePillText,
+        borderRadius: 14,
+        padding: "8px 0",
+        maxHeight: 720,
+        overflowY: "auto",
+        opacity: styleMenuOpen ? 1 : 0,
+        transform: styleMenuOpen ? "translateY(0)" : "translateY(-4px)",
+        transition: "opacity 0.25s ease 0.05s, transform 0.3s ease",
+    }
+
+    const tickStyle: React.CSSProperties = {
+        width: 2,
+        height: "100%",
+        background: foreground,
+        flexShrink: 0,
+    }
+
+    const sliderGroupStyle: React.CSSProperties = {
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 13.5,
+        flex: 1,
+        height: "100%",
+        padding: "0 16px",
+        cursor: "pointer",
+        userSelect: "none",
+        minWidth: 0,
+        boxSizing: "border-box",
+    }
+    const sliderLabelStyle: React.CSSProperties = {
+        fontFamily: uiFontChain,
+        fontSize: 14,
+        fontWeight: 500,
+        color: foreground,
+        lineHeight: "14px",
+        whiteSpace: "nowrap",
+    }
+    const sliderValueStyle: React.CSSProperties = {
+        ...sliderLabelStyle,
+        minWidth: 28,
+        textAlign: "right",
+        fontVariantNumeric: "tabular-nums",
+    }
+    const sliderTrackContainerStyle: React.CSSProperties = {
+        flex: 1,
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        cursor: "pointer",
+        padding: "6px 0",
+    }
+    const trackStyleFn = (thumbPos: string): React.CSSProperties => ({
+        width: "100%",
+        height: 1,
+        background: foreground,
+        WebkitMaskImage: `radial-gradient(circle 8.5px at ${thumbPos} 50%, transparent 99%, black 100%)`,
+        maskImage: `radial-gradient(circle 8.5px at ${thumbPos} 50%, transparent 99%, black 100%)`,
+        pointerEvents: "none",
+    })
+    const thumbStyleFn = (left: string): React.CSSProperties => ({
+        position: "absolute",
+        top: "50%",
+        left,
+        width: 11,
+        height: 11,
+        background: foreground,
+        borderRadius: 9999,
+        transform: "translate(-50%, -50%)",
+        pointerEvents: "none",
+    })
+
+    // OT Features pill + panel
+    const otPillStyle: React.CSSProperties = {
+        flex: "0 0 auto",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        padding: "0 16px",
+        height: "100%",
+        minWidth: 0,
+        boxSizing: "border-box",
+        cursor: "pointer",
+        userSelect: "none",
+        position: "relative",
+        fontFamily: uiFontChain,
+        fontSize: 14,
+        fontWeight: 500,
+        lineHeight: "14px",
+        color: foreground,
+    }
+    const otPanelStyle: React.CSSProperties = {
+        width: "100%",
+        display: "grid",
+        gridTemplateRows: otOpen ? "1fr" : "0fr",
+        transition: "grid-template-rows 0.35s ease",
+        boxSizing: "border-box",
+        fontFamily: uiFontChain,
+        color: foreground,
+    }
+    const otPanelInnerStyle: React.CSSProperties = {
+        overflow: "hidden",
+        minHeight: 0,
+    }
+    const otPanelGridStyle: React.CSSProperties = {
+        padding: "24px",
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)",
+        columnGap: 24,
+        rowGap: 8,
+        opacity: otOpen ? 1 : 0,
+        transform: otOpen ? "translateY(0)" : "translateY(-4px)",
+        transition: "opacity 0.25s ease 0.05s, transform 0.3s ease",
+    }
+    const otRowStyle: React.CSSProperties = {
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "4px 0",
+        fontSize: 14,
+        lineHeight: "14px",
+        cursor: "pointer",
+    }
+    const otCheckboxStyle: React.CSSProperties = {
+        width: 14,
+        height: 14,
+        border: `1px solid ${foreground}`,
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        boxSizing: "border-box",
+    }
+
+    // Look up the registered font-family for the current selection and
+    // build the fallback chain. Heuristic italic detection mirrors
+    // SingleColumn so the browser will pick a real italic file when one
+    // is registered (family is e.g. "Cina GEO Thin Italic").
+    const activeResolvedStyle = React.useMemo(() => {
+        if (!activeSub) return null
+        return activeSub.styles.find((s) => s.name === selectedStyle) || null
+    }, [activeSub, selectedStyle])
+
+    const selectedStyleIsItalic =
+        activeResolvedStyle?.isItalic ?? /italic/i.test(selectedStyle || "")
+
+    const activeFullFamily = activeResolvedStyle?.fullFamily || ""
+    const italicUprightFallback =
+        activeFullFamily &&
+        selectedStyleIsItalic &&
+        /\s*italic\s*$/i.test(activeFullFamily)
+            ? activeFullFamily.replace(/\s*italic\s*$/i, "").trim()
+            : ""
+
+    // Only the exact @font-face family + generic sans-serif as a
+    // fallback. We deliberately DO NOT fall back to `selectedStyle`
+    // (e.g. "Regular") or `collectionName` (e.g. "Ghostly Gothic")
+    // because those names can match locally-installed system fonts on
+    // a designer's machine and silently render with the wrong file.
+    const familyChain = [
+        activeFullFamily ? `'${activeFullFamily}'` : "",
+        italicUprightFallback ? `'${italicUprightFallback}'` : "",
+        "sans-serif",
+    ]
+        .filter(Boolean)
+        .join(", ")
+
+    // Build font-variation-settings when a variable weight is active
+    const fontVariationSettings =
+        wghtAxis && weight !== null ? `'wght' ${weight}` : undefined
+
+    // Effective font-weight: use VF slider value when active; otherwise
+    // stay at 400 so Fontdue's per-family @font-face (registered at
+    // weight: normal) keeps matching.
+    const effectiveFontWeight = weight !== null ? weight : 400
+
+    const textStyle: React.CSSProperties = {
+        width: "100%",
+        minWidth: "100%",
+        padding: "clamp(12px, 0.15em, 32px) 24px",
+        border: "none",
+        outline: "none",
+        background: "transparent",
+        color: foreground,
+        fontFamily: familyChain,
+        fontWeight: effectiveFontWeight,
+        fontStyle: selectedStyleIsItalic ? "italic" : "normal",
+        fontSize: size,
+        lineHeight: leading,
+        letterSpacing: `${tracking}em`,
+        wordBreak: "break-word",
+        boxSizing: "border-box",
+        textAlign: "left",
+        columnCount,
+        columnGap: 24,
+        fontFeatureSettings,
+        ...(fontVariationSettings ? { fontVariationSettings } : {}),
+    }
+
+    const toggleFeature = (tag: string) => {
+        setActiveFeatures((prev) => {
+            const next = new Set(prev)
+            if (next.has(tag)) next.delete(tag)
+            else next.add(tag)
+            return next
+        })
+    }
+
+    const hasMultipleSubFamilies = subFamilies.length > 1
+
+    return (
+        <div
+            ref={rootRef}
+            style={{
+                // Belt-and-braces stretchers so the tester always
+                // fills its Framer parent on BOTH axes, regardless of
+                // whether that parent is a flex, grid, or plain block
+                // container — and regardless of how short the
+                // specimen text happens to be.
+                display: "flex",
+                flexDirection: "column",
+                width: "100%",
+                minWidth: "100%",
+                maxWidth: "none",
+                height: "100%",
+                minHeight: "100%",
+                flex: "1 1 100%",
+                alignSelf: "stretch",
+                padding: "96px 0",
+                background,
+                ...(backgroundImage
+                    ? {
+                          backgroundImage: `url(${backgroundImage})`,
+                          backgroundSize: "cover",
+                          backgroundPosition: "center",
+                          backgroundRepeat: "no-repeat",
+                      }
+                    : {}),
+                color: foreground,
+                fontFamily: uiFontChain,
+                boxSizing: "border-box",
+                textAlign: "left",
+                opacity: fontsLoaded ? 1 : 0,
+                transition: "opacity 0.3s ease",
+            }}
+        >
+            {/* Top bar */}
+            <div style={barStyle}>
+                {/* Left cluster: font family pill + style pill */}
+                <div style={leftClusterStyle}>
+                    {/* Font family pill — dropdown when > 1 sub-family */}
+                    <div
+                        ref={subPillRef}
+                        style={{
+                            ...namePillStyle,
+                            cursor: hasMultipleSubFamilies
+                                ? "pointer"
+                                : "default",
+                        }}
+                        onMouseDown={
+                            hasMultipleSubFamilies
+                                ? (e) => {
+                                      e.preventDefault()
+                                      setSubMenuOpen((v) => !v)
+                                  }
+                                : undefined
+                        }
+                    >
+                        <span style={namePillLabelStyle}>
+                            {collectionName || "\u00a0"}
+                        </span>
+                        {hasMultipleSubFamilies && (
+                            <span
+                                style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    color: namePillText,
+                                    transform: subMenuOpen
+                                        ? "rotate(180deg)"
+                                        : "rotate(0deg)",
+                                    transition: "transform 0.25s ease",
+                                }}
+                            >
+                                <svg width="12" height="7" viewBox="0 0 12 7">
+                                    <polyline
+                                        points="1,1 6,6 11,1"
+                                        stroke="currentColor"
+                                        strokeWidth="1"
+                                        strokeLinecap="square"
+                                        fill="none"
+                                    />
+                                </svg>
+                            </span>
+                        )}
+                        <div style={namePillLineStyle} />
+                        {hasMultipleSubFamilies && (
+                            <div style={subMenuWrapStyle}>
+                                <div style={subMenuListStyle}>
+                                    {subFamilies.map((sf) => {
+                                        const active =
+                                            sf.slug === activeSub?.slug
+                                        return (
+                                            <div
+                                                key={sf.slug || sf.name}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault()
+                                                    e.stopPropagation()
+                                                    setActiveSubFamilySlug(
+                                                        sf.slug
+                                                    )
+                                                    setSubMenuOpen(false)
+                                                }}
+                                                style={{
+                                                    padding: "6px 16px",
+                                                    cursor: "pointer",
+                                                    fontSize: 16,
+                                                    lineHeight: "22.4px",
+                                                    whiteSpace: "nowrap",
+                                                    background: active
+                                                        ? namePillText
+                                                        : "transparent",
+                                                    color: active
+                                                        ? namePillBg
+                                                        : namePillText,
+                                                }}
+                                            >
+                                                {sf.name}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Style pill — dropdown when multiple styles, plain label otherwise */}
+                    <div
+                        ref={stylePillRef}
+                        style={{
+                            ...stylePillStyleBase,
+                            cursor:
+                                styleNames.length > 1 ? "pointer" : "default",
+                        }}
+                        onMouseDown={
+                            styleNames.length > 1
+                                ? (e) => {
+                                      e.preventDefault()
+                                      setStyleMenuOpen((v) => !v)
+                                  }
+                                : undefined
+                        }
+                    >
+                        <span style={{ paddingTop: 2 }}>
+                            {displayStyle(selectedStyle)}
+                        </span>
+                        {styleNames.length > 1 && (
+                            <span
+                                style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    transform: styleMenuOpen
+                                        ? "rotate(180deg)"
+                                        : "rotate(0deg)",
+                                    transition: "transform 0.25s ease",
+                                }}
+                            >
+                                <svg width="12" height="7" viewBox="0 0 12 7">
+                                    <polyline
+                                        points="1,1 6,6 11,1"
+                                        stroke="currentColor"
+                                        strokeWidth="1"
+                                        strokeLinecap="square"
+                                        fill="none"
+                                    />
+                                </svg>
+                            </span>
+                        )}
+                        {styleNames.length > 1 && (
+                            <div style={styleMenuWrapStyle}>
+                                <div style={styleMenuListStyle}>
+                                    {styleNames.map((s) => {
+                                        const active = s === selectedStyle
+                                        return (
+                                            <div
+                                                key={s}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault()
+                                                    e.stopPropagation()
+                                                    userTouchedRef.current = true
+                                                    setSelectedStyle(s)
+                                                    setStyleMenuOpen(false)
+                                                }}
+                                                style={{
+                                                    padding: "6px 16px",
+                                                    cursor: "pointer",
+                                                    fontSize: 16,
+                                                    lineHeight: "22.4px",
+                                                    whiteSpace: "nowrap",
+                                                    background: active
+                                                        ? stylePillText
+                                                        : "transparent",
+                                                    color: active
+                                                        ? stylePillBg
+                                                        : stylePillText,
+                                                }}
+                                            >
+                                                {displayStyle(s)}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Slider module (size/leading/tracking) */}
+                <div style={sliderModuleStyle}>
+                    <div style={tickStyle} />
+
+                    {/* Size */}
+                    <div style={sliderGroupStyle}>
+                        <span style={sliderLabelStyle}>Size</span>
+                        <div
+                            style={sliderTrackContainerStyle}
+                            onMouseDown={(e) =>
+                                handleDrag(e, 12, 300, 1, setSize)
+                            }
+                            onTouchStart={(e) =>
+                                handleDrag(e, 12, 300, 1, setSize)
+                            }
+                        >
+                            <div style={trackStyleFn(pct(size, 12, 300))} />
+                            <div style={thumbStyleFn(pct(size, 12, 300))} />
+                        </div>
+                        <span style={sliderValueStyle}>{size}</span>
+                    </div>
+
+                    <div style={tickStyle} />
+
+                    {/* Leading */}
+                    <div style={sliderGroupStyle}>
+                        <span style={sliderLabelStyle}>Leading</span>
+                        <div
+                            style={sliderTrackContainerStyle}
+                            onMouseDown={(e) =>
+                                handleDrag(e, 0.8, 2, 0.05, setLeading)
+                            }
+                            onTouchStart={(e) =>
+                                handleDrag(e, 0.8, 2, 0.05, setLeading)
+                            }
+                        >
+                            <div style={trackStyleFn(pct(leading, 0.8, 2))} />
+                            <div style={thumbStyleFn(pct(leading, 0.8, 2))} />
+                        </div>
+                        <span style={sliderValueStyle}>
+                            {leading.toFixed(2)}
+                        </span>
+                    </div>
+
+                    <div style={tickStyle} />
+
+                    {/* Tracking */}
+                    <div style={sliderGroupStyle}>
+                        <span style={sliderLabelStyle}>Tracking</span>
+                        <div
+                            style={sliderTrackContainerStyle}
+                            onMouseDown={(e) =>
+                                handleDrag(e, -0.05, 0.3, 0.005, setTracking)
+                            }
+                            onTouchStart={(e) =>
+                                handleDrag(e, -0.05, 0.3, 0.005, setTracking)
+                            }
+                        >
+                            <div
+                                style={trackStyleFn(pct(tracking, -0.05, 0.3))}
+                            />
+                            <div
+                                style={thumbStyleFn(pct(tracking, -0.05, 0.3))}
+                            />
+                        </div>
+                        <span style={sliderValueStyle}>
+                            {tracking.toFixed(3)}em
+                        </span>
+                    </div>
+
+                    {/* Weight pill — only for variable font styles */}
+                    {wghtAxis && weight !== null && (
+                        <>
+                            <div style={tickStyle} />
+                            <div
+                                style={{
+                                    display: "flex",
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    gap: 13.5,
+                                    flex: 1,
+                                    height: "100%",
+                                    padding: "0 16px",
+                                    borderRadius: 9999,
+                                    cursor: "pointer",
+                                    userSelect: "none",
+                                    background: weightPillColor || foreground,
+                                    boxSizing: "border-box",
+                                }}
+                            >
+                                <span
+                                    style={{
+                                        ...sliderLabelStyle,
+                                        color:
+                                            weightPillForeground || "#FFFFFF",
+                                        paddingTop: 1,
+                                    }}
+                                >
+                                    Weight
+                                </span>
+                                <div
+                                    style={sliderTrackContainerStyle}
+                                    onMouseDown={(e) =>
+                                        handleDrag(
+                                            e,
+                                            wghtAxis.minValue,
+                                            wghtAxis.maxValue,
+                                            1,
+                                            setWeight
+                                        )
+                                    }
+                                    onTouchStart={(e) =>
+                                        handleDrag(
+                                            e,
+                                            wghtAxis.minValue,
+                                            wghtAxis.maxValue,
+                                            1,
+                                            setWeight
+                                        )
+                                    }
+                                >
+                                    <div
+                                        style={{
+                                            ...trackStyleFn(
+                                                pct(
+                                                    weight,
+                                                    wghtAxis.minValue,
+                                                    wghtAxis.maxValue
+                                                )
+                                            ),
+                                            background:
+                                                weightPillForeground ||
+                                                "#FFFFFF",
+                                        }}
+                                    />
+                                    <div
+                                        style={{
+                                            ...thumbStyleFn(
+                                                pct(
+                                                    weight,
+                                                    wghtAxis.minValue,
+                                                    wghtAxis.maxValue
+                                                )
+                                            ),
+                                            background:
+                                                weightPillForeground ||
+                                                "#FFFFFF",
+                                            boxShadow: `0 0 0 3px ${weightPillColor || foreground}`,
+                                        }}
+                                    />
+                                </div>
+                                <span
+                                    style={{
+                                        ...sliderValueStyle,
+                                        color:
+                                            weightPillForeground || "#FFFFFF",
+                                        paddingTop: 1,
+                                    }}
+                                >
+                                    {weight}
+                                </span>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                {/* OT Features pill — hidden when the current style has no toggleables */}
+                {(!featuresLoaded || toggleable.length > 0) && (
+                    <div style={otPillStyle} onClick={() => setOtOpen(!otOpen)}>
+                        <span style={{ paddingTop: 2 }}>OT Features</span>
+                        <span
+                            style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                transform: otOpen
+                                    ? "rotate(180deg)"
+                                    : "rotate(0deg)",
+                                transition: "transform 0.25s ease",
+                            }}
+                        >
+                            <svg width="12" height="7" viewBox="0 0 12 7">
+                                <polyline
+                                    points="1,1 6,6 11,1"
+                                    stroke="currentColor"
+                                    strokeWidth="1"
+                                    strokeLinecap="square"
+                                    fill="none"
+                                />
+                            </svg>
+                        </span>
+                    </div>
+                )}
+            </div>
+
+            {/* OT Features panel */}
+            {(!featuresLoaded || toggleable.length > 0) && (
+                <div style={otPanelStyle}>
+                    <div style={otPanelInnerStyle}>
+                        <div style={otPanelGridStyle}>
+                            {toggleable.length === 0 && (
+                                <div style={{ opacity: 0.6 }}>
+                                    No features available
+                                </div>
+                            )}
+                            {toggleable.map((tag) => {
+                                const active = activeFeatures.has(tag)
+                                return (
+                                    <div
+                                        key={tag}
+                                        style={otRowStyle}
+                                        onClick={() => toggleFeature(tag)}
+                                    >
+                                        <div style={otCheckboxStyle}>
+                                            {active && (
+                                                <div
+                                                    style={{
+                                                        width: 8,
+                                                        height: 8,
+                                                        background: foreground,
+                                                    }}
+                                                />
+                                            )}
+                                        </div>
+                                        <span>{getFeatureLabel(tag)}</span>
+                                        <span
+                                            style={{
+                                                marginLeft: "auto",
+                                                fontFamily: uiFontChain,
+                                                fontSize: 14,
+                                                lineHeight: "14px",
+                                            }}
+                                        >
+                                            {tag}
+                                        </span>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Editable multi-column specimen text */}
+            <div
+                contentEditable
+                suppressContentEditableWarning
+                spellCheck={false}
+                style={textStyle}
+            >
+                {sampleText}
+            </div>
+        </div>
+    )
+}
