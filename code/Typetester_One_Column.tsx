@@ -1509,17 +1509,17 @@ function MultiColumnTester({
                         <div
                             style={sliderTrackContainerStyle}
                             onMouseDown={(e) =>
-                                handleDrag(e, -0.0125, 0.3, 0.005, setTracking)
+                                handleDrag(e, -0.15, 0.3, 0.005, setTracking)
                             }
                             onTouchStart={(e) =>
-                                handleDrag(e, -0.0125, 0.3, 0.005, setTracking)
+                                handleDrag(e, -0.15, 0.3, 0.005, setTracking)
                             }
                         >
                             <div
-                                style={trackStyleFn(pct(tracking, -0.0125, 0.3))}
+                                style={trackStyleFn(pct(tracking, -0.15, 0.3))}
                             />
                             <div
-                                style={thumbStyleFn(pct(tracking, -0.0125, 0.3))}
+                                style={thumbStyleFn(pct(tracking, -0.15, 0.3))}
                             />
                         </div>
                         <span style={sliderValueStyle}>
