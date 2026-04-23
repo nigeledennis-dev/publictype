@@ -1,221 +1,93 @@
-<!--
-  FONTDUE GLOBAL PRELOAD + PAGE GATE
-
-  Paste this block into Framer:
-    Site Settings → General → Custom Code → End of <head> tag
-
-  What it does on every page:
-    1. Adds a `.fontdue-loading` class to <html> and a CSS rule that
-       hides <body> while that class is present. This stops the
-       staggered fade-ins each component does independently — the
-       page stays blank until every Fontdue face is ready, then
-       reveals all at once.
-    2. Asks the Fontdue GraphQL API for every collection + child +
-       style.
-    3. Emits a <link rel="preload" as="font"> tag for each unique
-       woff2 URL so the browser starts downloading immediately, in
-       parallel with the rest of the page.
-    4. Injects one global <style data-fontdue-preload> element with
-       @font-face rules for every style. Families are registered
-       under BOTH naming conventions the code components use:
-         - Static styles:   "${cssFamily} ${name}"   (Hero, Specimen, OTFeatureText, FamilyList, typetesters)
-         - Variable styles: "${cssFamily}" AND "${cssFamily} ${name}" (FamilyList + VariableWeightAnimate use short form; Hero/Specimen/OTFeatureText use long form)
-    5. Calls document.fonts.load() for every registered family and
-       waits on Promise.all(...). Once every face is in, swaps the
-       <html> class from `.fontdue-loading` to `.fontdue-ready` —
-       <body> fades in.
-    6. Safety net: reveals after 3s regardless, so a slow network
-       or a mistyped slug never leaves the page blank indefinitely.
-
-  Components still inject their own @font-face rules and keep their
-  own opacity gates, so this snippet is a fast path — not a
-  dependency. Duplicate rules are harmless; once the file is in
-  the HTTP cache, components paint with the real font on first
-  render.
-
-  If you ever point components at a different Fontdue URL, update
-  FONTDUE_URL below to match.
--->
-<style>
-    html.fontdue-loading body {
-        opacity: 0 !important;
-    }
-    html.fontdue-ready body {
-        opacity: 1;
-        transition: opacity 0.2s ease;
-    }
-</style>
+<!-- Fontdue preload + page gate — paste into Site Settings → Custom Code → End of <head>.
+     Hides body until every font (Fontdue + Framer + anything else) is downloaded,
+     then reveals once. 3s safety. -->
+<style>html.fontdue-loading body{opacity:0!important}html.fontdue-ready body{opacity:1;transition:opacity .2s ease}</style>
 <script>
 (function () {
-    var FONTDUE_URL = "https://www.publictype.us"
-    var SAFETY_MS = 3000
-
-    document.documentElement.classList.add("fontdue-loading")
-    var revealed = false
+    var URL = "https://www.publictype.us"
+    var H = document.documentElement
+    H.classList.add("fontdue-loading")
+    var done = false, safety
     function reveal() {
-        if (revealed) return
-        revealed = true
-        document.documentElement.classList.remove("fontdue-loading")
-        document.documentElement.classList.add("fontdue-ready")
+        if (done) return
+        done = true
+        clearTimeout(safety)
+        H.classList.remove("fontdue-loading")
+        H.classList.add("fontdue-ready")
     }
-    var safetyTimer = setTimeout(reveal, SAFETY_MS)
+    function waitAllFonts() {
+        // document.fonts.ready resolves when every pending face load is
+        // done — covers Framer's own fonts, not just ours.
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(reveal, reveal)
+        } else reveal()
+    }
+    safety = setTimeout(reveal, 3000)
 
-    var QUERY = [
-        "{",
-        "  viewer {",
-        "    fontCollections(first: 100) {",
-        "      edges {",
-        "        node {",
-        "          fontStyles {",
-        "            name cssFamily",
-        "            webfontSources { format url }",
-        "            variableAxes { axis }",
-        "          }",
-        "          children {",
-        "            fontStyles {",
-        "              name cssFamily",
-        "              webfontSources { format url }",
-        "              variableAxes { axis }",
-        "            }",
-        "          }",
-        "        }",
-        "      }",
-        "    }",
-        "  }",
-        "}",
-    ].join("\n")
+    var Q = "{viewer{fontCollections(first:100){edges{node{fontStyles{name cssFamily webfontSources{format url} variableAxes{axis}} children{fontStyles{name cssFamily webfontSources{format url} variableAxes{axis}}}}}}}}"
 
-    var faceRules = []
-    var registeredFamilies = {}
-    var preloadedUrls = {}
+    var rules = [], fams = {}, urls = {}
 
-    function buildFace(family, sources) {
-        var ordered = sources.slice().sort(function (a, b) {
-            var score = function (f) {
-                return f === "woff2" ? 0 : f === "woff" ? 1 : 2
-            }
-            return score(a.format) - score(b.format)
+    function face(f, ss) {
+        var o = ss.slice().sort(function (a, b) {
+            var s = function (x) { return x === "woff2" ? 0 : x === "woff" ? 1 : 2 }
+            return s(a.format) - s(b.format)
         })
-        var srcList = ordered
-            .map(function (s) {
-                return 'url("' + s.url + '") format("' + s.format + '")'
-            })
-            .join(", ")
-        return (
-            '@font-face{font-family:"' +
-            family +
-            '";font-style:normal;font-weight:100 900;font-display:swap;src:local(""),' +
-            srcList +
-            ";}"
-        )
+        return '@font-face{font-family:"' + f + '";font-style:normal;font-weight:100 900;font-display:swap;src:local(""),' +
+            o.map(function (s) { return 'url("' + s.url + '") format("' + s.format + '")' }).join(",") + ";}"
     }
-
-    function registerFamily(family, sources) {
-        if (!family || registeredFamilies[family]) return
-        registeredFamilies[family] = true
-        faceRules.push(buildFace(family, sources))
+    function reg(f, ss) { if (!f || fams[f]) return; fams[f] = 1; rules.push(face(f, ss)) }
+    function pre(ss) {
+        for (var i = 0; i < ss.length; i++) {
+            var s = ss[i]
+            if (s.format !== "woff2" || !s.url || urls[s.url]) continue
+            urls[s.url] = 1
+            var l = document.createElement("link")
+            l.rel = "preload"; l.as = "font"; l.type = "font/woff2"
+            l.href = s.url; l.crossOrigin = "anonymous"
+            document.head.appendChild(l)
+        }
     }
-
-    function preloadSources(sources) {
-        for (var i = 0; i < sources.length; i++) {
-            var src = sources[i]
-            if (src.format !== "woff2" || !src.url) continue
-            if (preloadedUrls[src.url]) continue
-            preloadedUrls[src.url] = true
-            var link = document.createElement("link")
-            link.rel = "preload"
-            link.as = "font"
-            link.type = "font/woff2"
-            link.href = src.url
-            link.crossOrigin = "anonymous"
-            document.head.appendChild(link)
+    function walk(list) {
+        if (!list) return
+        for (var i = 0; i < list.length; i++) {
+            var s = list[i], cf = (s.cssFamily || "").trim(), ss = s.webfontSources || []
+            if (!cf || !ss.length) continue
+            var v = (s.variableAxes || []).length > 0, ln = s.name ? cf + " " + s.name : cf
+            if (v) { reg(cf, ss); if (s.name) reg(ln, ss) } else reg(ln, ss)
+            pre(ss)
         }
     }
 
-    function walk(styles) {
-        if (!styles) return
-        for (var i = 0; i < styles.length; i++) {
-            var s = styles[i]
-            var cssFamily = (s.cssFamily || "").trim()
-            var sources = s.webfontSources || []
-            if (!cssFamily || sources.length === 0) continue
-
-            var isVariable = (s.variableAxes || []).length > 0
-            var longName = s.name ? cssFamily + " " + s.name : cssFamily
-
-            if (isVariable) {
-                registerFamily(cssFamily, sources)
-                if (s.name) registerFamily(longName, sources)
-            } else {
-                registerFamily(longName, sources)
-            }
-
-            preloadSources(sources)
-        }
-    }
-
-    fetch(FONTDUE_URL + "/graphql", {
+    fetch(URL + "/graphql", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: QUERY }),
+        body: JSON.stringify({ query: Q })
     })
-        .then(function (r) {
-            return r.json()
-        })
-        .then(function (data) {
-            var wrap =
-                data &&
-                data.data &&
-                data.data.viewer &&
-                data.data.viewer.fontCollections
-            var edges = (wrap && wrap.edges) || []
-            for (var i = 0; i < edges.length; i++) {
-                var node = edges[i] && edges[i].node
-                if (!node) continue
-                walk(node.fontStyles)
-                var children = node.children || []
-                for (var j = 0; j < children.length; j++) {
-                    walk(children[j] && children[j].fontStyles)
-                }
+        .then(function (r) { return r.json() })
+        .then(function (d) {
+            var w = d && d.data && d.data.viewer && d.data.viewer.fontCollections
+            var es = (w && w.edges) || []
+            for (var i = 0; i < es.length; i++) {
+                var n = es[i] && es[i].node
+                if (!n) continue
+                walk(n.fontStyles)
+                var ch = n.children || []
+                for (var j = 0; j < ch.length; j++) walk(ch[j] && ch[j].fontStyles)
             }
-
-            if (faceRules.length > 0) {
-                var styleEl = document.createElement("style")
-                styleEl.setAttribute("data-fontdue-preload", "true")
-                styleEl.textContent = faceRules.join("\n")
-                document.head.appendChild(styleEl)
+            if (rules.length) {
+                var e = document.createElement("style")
+                e.setAttribute("data-fontdue-preload", "true")
+                e.textContent = rules.join("\n")
+                document.head.appendChild(e)
             }
-
-            var families = Object.keys(registeredFamilies)
-            if (
-                families.length > 0 &&
-                document.fonts &&
-                typeof document.fonts.load === "function"
-            ) {
-                Promise.all(
-                    families.map(function (family) {
-                        return document.fonts
-                            .load('100px "' + family + '"')
-                            .catch(function () {
-                                return null
-                            })
-                    })
-                ).then(function () {
-                    clearTimeout(safetyTimer)
-                    reveal()
-                })
-            } else {
-                // Nothing to wait on — reveal immediately.
-                clearTimeout(safetyTimer)
-                reveal()
-            }
+            var ks = Object.keys(fams)
+            if (ks.length && document.fonts && document.fonts.load) {
+                Promise.all(ks.map(function (f) {
+                    return document.fonts.load('100px "' + f + '"').catch(function () { return null })
+                })).then(waitAllFonts)
+            } else waitAllFonts()
         })
-        .catch(function () {
-            // Network/query failure — reveal right away so the page
-            // isn't stuck behind the gate. Components will still
-            // inject their own @font-face rules on demand.
-            clearTimeout(safetyTimer)
-            reveal()
-        })
+        .catch(waitAllFonts)
 })()
 </script>
