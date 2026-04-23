@@ -1,34 +1,64 @@
 <!--
-  FONTDUE GLOBAL PRELOAD
+  FONTDUE GLOBAL PRELOAD + PAGE GATE
 
   Paste this block into Framer:
     Site Settings → General → Custom Code → End of <head> tag
 
   What it does on every page:
-    1. Asks the Fontdue GraphQL API for every collection + child + style.
-    2. Emits a <link rel="preload" as="font"> tag for each unique woff2
-       URL so the browser starts downloading them immediately, in
+    1. Adds a `.fontdue-loading` class to <html> and a CSS rule that
+       hides <body> while that class is present. This stops the
+       staggered fade-ins each component does independently — the
+       page stays blank until every Fontdue face is ready, then
+       reveals all at once.
+    2. Asks the Fontdue GraphQL API for every collection + child +
+       style.
+    3. Emits a <link rel="preload" as="font"> tag for each unique
+       woff2 URL so the browser starts downloading immediately, in
        parallel with the rest of the page.
-    3. Injects one global <style data-fontdue-preload> element with
+    4. Injects one global <style data-fontdue-preload> element with
        @font-face rules for every style. Families are registered
-       under BOTH naming conventions the code components use, so any
-       component's font-family string resolves to a registered face:
-         - Static styles: "${cssFamily} ${name}"           (Hero, Specimen, OTFeatureText, FamilyList, typetesters)
-         - Variable styles: "${cssFamily}" AND "${cssFamily} ${name}" (FamilyList + VariableWeightAnimate use the short form; Hero/Specimen/OTFeatureText use the long form)
-    4. Calls document.fonts.load() for each family to kick the
-       browser into pulling the files down eagerly.
+       under BOTH naming conventions the code components use:
+         - Static styles:   "${cssFamily} ${name}"   (Hero, Specimen, OTFeatureText, FamilyList, typetesters)
+         - Variable styles: "${cssFamily}" AND "${cssFamily} ${name}" (FamilyList + VariableWeightAnimate use short form; Hero/Specimen/OTFeatureText use long form)
+    5. Calls document.fonts.load() for every registered family and
+       waits on Promise.all(...). Once every face is in, swaps the
+       <html> class from `.fontdue-loading` to `.fontdue-ready` —
+       <body> fades in.
+    6. Safety net: reveals after 3s regardless, so a slow network
+       or a mistyped slug never leaves the page blank indefinitely.
 
-  Safe to include on every page. Components that inject their own
-  @font-face rules still work — duplicate rules are harmless, and
-  once the file is in the HTTP cache every component paints with
-  the real font on first render.
+  Components still inject their own @font-face rules and keep their
+  own opacity gates, so this snippet is a fast path — not a
+  dependency. Duplicate rules are harmless; once the file is in
+  the HTTP cache, components paint with the real font on first
+  render.
 
   If you ever point components at a different Fontdue URL, update
   FONTDUE_URL below to match.
 -->
+<style>
+    html.fontdue-loading body {
+        opacity: 0 !important;
+    }
+    html.fontdue-ready body {
+        opacity: 1;
+        transition: opacity 0.2s ease;
+    }
+</style>
 <script>
 (function () {
     var FONTDUE_URL = "https://www.publictype.us"
+    var SAFETY_MS = 3000
+
+    document.documentElement.classList.add("fontdue-loading")
+    var revealed = false
+    function reveal() {
+        if (revealed) return
+        revealed = true
+        document.documentElement.classList.remove("fontdue-loading")
+        document.documentElement.classList.add("fontdue-ready")
+    }
+    var safetyTimer = setTimeout(reveal, SAFETY_MS)
 
     var QUERY = [
         "{",
@@ -156,18 +186,36 @@
                 document.head.appendChild(styleEl)
             }
 
-            if (document.fonts && typeof document.fonts.load === "function") {
-                Object.keys(registeredFamilies).forEach(function (family) {
-                    document.fonts
-                        .load('100px "' + family + '"')
-                        .catch(function () {})
+            var families = Object.keys(registeredFamilies)
+            if (
+                families.length > 0 &&
+                document.fonts &&
+                typeof document.fonts.load === "function"
+            ) {
+                Promise.all(
+                    families.map(function (family) {
+                        return document.fonts
+                            .load('100px "' + family + '"')
+                            .catch(function () {
+                                return null
+                            })
+                    })
+                ).then(function () {
+                    clearTimeout(safetyTimer)
+                    reveal()
                 })
+            } else {
+                // Nothing to wait on — reveal immediately.
+                clearTimeout(safetyTimer)
+                reveal()
             }
         })
         .catch(function () {
-            // Network/query failure — components still inject their
-            // own @font-face rules on demand, so this is a fast path,
-            // not a dependency.
+            // Network/query failure — reveal right away so the page
+            // isn't stuck behind the gate. Components will still
+            // inject their own @font-face rules on demand.
+            clearTimeout(safetyTimer)
+            reveal()
         })
 })()
 </script>
