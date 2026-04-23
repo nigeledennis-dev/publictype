@@ -1,0 +1,173 @@
+<!--
+  FONTDUE GLOBAL PRELOAD
+
+  Paste this block into Framer:
+    Site Settings → General → Custom Code → End of <head> tag
+
+  What it does on every page:
+    1. Asks the Fontdue GraphQL API for every collection + child + style.
+    2. Emits a <link rel="preload" as="font"> tag for each unique woff2
+       URL so the browser starts downloading them immediately, in
+       parallel with the rest of the page.
+    3. Injects one global <style data-fontdue-preload> element with
+       @font-face rules for every style. Families are registered
+       under BOTH naming conventions the code components use, so any
+       component's font-family string resolves to a registered face:
+         - Static styles: "${cssFamily} ${name}"           (Hero, Specimen, OTFeatureText, FamilyList, typetesters)
+         - Variable styles: "${cssFamily}" AND "${cssFamily} ${name}" (FamilyList + VariableWeightAnimate use the short form; Hero/Specimen/OTFeatureText use the long form)
+    4. Calls document.fonts.load() for each family to kick the
+       browser into pulling the files down eagerly.
+
+  Safe to include on every page. Components that inject their own
+  @font-face rules still work — duplicate rules are harmless, and
+  once the file is in the HTTP cache every component paints with
+  the real font on first render.
+
+  If you ever point components at a different Fontdue URL, update
+  FONTDUE_URL below to match.
+-->
+<script>
+(function () {
+    var FONTDUE_URL = "https://www.publictype.us"
+
+    var QUERY = [
+        "{",
+        "  viewer {",
+        "    fontCollections(first: 100) {",
+        "      edges {",
+        "        node {",
+        "          fontStyles {",
+        "            name cssFamily",
+        "            webfontSources { format url }",
+        "            variableAxes { axis }",
+        "          }",
+        "          children {",
+        "            fontStyles {",
+        "              name cssFamily",
+        "              webfontSources { format url }",
+        "              variableAxes { axis }",
+        "            }",
+        "          }",
+        "        }",
+        "      }",
+        "    }",
+        "  }",
+        "}",
+    ].join("\n")
+
+    var faceRules = []
+    var registeredFamilies = {}
+    var preloadedUrls = {}
+
+    function buildFace(family, sources) {
+        var ordered = sources.slice().sort(function (a, b) {
+            var score = function (f) {
+                return f === "woff2" ? 0 : f === "woff" ? 1 : 2
+            }
+            return score(a.format) - score(b.format)
+        })
+        var srcList = ordered
+            .map(function (s) {
+                return 'url("' + s.url + '") format("' + s.format + '")'
+            })
+            .join(", ")
+        return (
+            '@font-face{font-family:"' +
+            family +
+            '";font-style:normal;font-weight:100 900;font-display:swap;src:local(""),' +
+            srcList +
+            ";}"
+        )
+    }
+
+    function registerFamily(family, sources) {
+        if (!family || registeredFamilies[family]) return
+        registeredFamilies[family] = true
+        faceRules.push(buildFace(family, sources))
+    }
+
+    function preloadSources(sources) {
+        for (var i = 0; i < sources.length; i++) {
+            var src = sources[i]
+            if (src.format !== "woff2" || !src.url) continue
+            if (preloadedUrls[src.url]) continue
+            preloadedUrls[src.url] = true
+            var link = document.createElement("link")
+            link.rel = "preload"
+            link.as = "font"
+            link.type = "font/woff2"
+            link.href = src.url
+            link.crossOrigin = "anonymous"
+            document.head.appendChild(link)
+        }
+    }
+
+    function walk(styles) {
+        if (!styles) return
+        for (var i = 0; i < styles.length; i++) {
+            var s = styles[i]
+            var cssFamily = (s.cssFamily || "").trim()
+            var sources = s.webfontSources || []
+            if (!cssFamily || sources.length === 0) continue
+
+            var isVariable = (s.variableAxes || []).length > 0
+            var longName = s.name ? cssFamily + " " + s.name : cssFamily
+
+            if (isVariable) {
+                registerFamily(cssFamily, sources)
+                if (s.name) registerFamily(longName, sources)
+            } else {
+                registerFamily(longName, sources)
+            }
+
+            preloadSources(sources)
+        }
+    }
+
+    fetch(FONTDUE_URL + "/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: QUERY }),
+    })
+        .then(function (r) {
+            return r.json()
+        })
+        .then(function (data) {
+            var wrap =
+                data &&
+                data.data &&
+                data.data.viewer &&
+                data.data.viewer.fontCollections
+            var edges = (wrap && wrap.edges) || []
+            for (var i = 0; i < edges.length; i++) {
+                var node = edges[i] && edges[i].node
+                if (!node) continue
+                walk(node.fontStyles)
+                var children = node.children || []
+                for (var j = 0; j < children.length; j++) {
+                    walk(children[j] && children[j].fontStyles)
+                }
+            }
+
+            if (faceRules.length > 0) {
+                var styleEl = document.createElement("style")
+                styleEl.setAttribute("data-fontdue-preload", "true")
+                styleEl.textContent = faceRules.join("\n")
+                document.head.appendChild(styleEl)
+            }
+
+            if (document.fonts && typeof document.fonts.load === "function") {
+                Object.keys(registeredFamilies).forEach(function (family) {
+                    document.fonts
+                        .load('100px "' + family + '"')
+                        .catch(function () {})
+                })
+            }
+        })
+        .catch(function () {
+            // Network/query failure — components still inject their
+            // own @font-face rules on demand, so this is a fast path,
+            // not a dependency.
+        })
+})()
+</script>
