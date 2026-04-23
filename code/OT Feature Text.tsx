@@ -192,7 +192,10 @@ export default function OTFeatureText(props: Props) {
                 const rules: string[] = []
                 const walkFaces = (list: any[]) => {
                     for (const s of list || []) {
-                        if ((s.variableAxes || []).length > 0) continue
+                        // Variable woff2s are valid @font-face targets.
+                        // Collections distributed only as variable fonts
+                        // (Skol, etc.) produced zero rules when we skipped
+                        // them, so the text fell back to sans-serif.
                         const cssFamily = s.cssFamily || ""
                         const fullFamily =
                             cssFamily && s.name
@@ -222,7 +225,10 @@ export default function OTFeatureText(props: Props) {
 
                 const out: StyleRec[] = []
                 for (const s of resolvedChild.fontStyles || []) {
-                    if ((s.variableAxes || []).length > 0) continue
+                    // Keep variable styles — dropping them left
+                    // variable-only children with an empty style list,
+                    // so activeStyle was null and the text rendered in
+                    // sans-serif.
                     const cssFamily = s.cssFamily || ""
                     const fullFamily =
                         cssFamily && s.name
