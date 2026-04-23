@@ -340,8 +340,10 @@ export default function Specimen(props: TesterProps) {
                     const rules: string[] = []
                     const walk = (styles: any[]) => {
                         for (const s of styles || []) {
-                            const isVariable = (s.variableAxes || []).length > 0
-                            if (isVariable) continue
+                            // Variable woff2s are valid @font-face targets.
+                            // Collections distributed only as variable fonts
+                            // (Skol, etc.) produced zero rules when we skipped
+                            // them, leaving the specimen in sans-serif.
                             const cssFamily = s.cssFamily || ""
                             const fullFamily =
                                 cssFamily && s.name
@@ -445,8 +447,10 @@ export default function Specimen(props: TesterProps) {
                 for (const child of resolvedChildren) {
                     const styles: SpecimenStyle[] = []
                     for (const s of child.fontStyles || []) {
-                        const isVariable = (s.variableAxes || []).length > 0
-                        if (isVariable) continue
+                        // Include variable styles — dropping them left
+                        // variable-only sub-families (Skol) with zero
+                        // styles, so the whole sub-family was skipped at
+                        // the `if (styles.length === 0)` guard below.
                         const cssFamily = s.cssFamily || ""
                         const fullFamily =
                             cssFamily && s.name
