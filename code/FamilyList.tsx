@@ -445,8 +445,16 @@ export default function FamilyList(props: {
         }
     }, [slugsKey, fontdueUrl, includeVariableFonts, labelStyle])
 
+    const rootRef = React.useRef<HTMLDivElement | null>(null)
+    React.useEffect(() => {
+        const el = rootRef.current
+        if (!el) return
+        el.style.setProperty("overflow", "visible", "important")
+    }, [fontsLoaded, styles.length])
+
     return (
         <div
+            ref={rootRef}
             style={{
                 background,
                 padding,
@@ -455,6 +463,7 @@ export default function FamilyList(props: {
                 color,
                 opacity: fontsLoaded ? 1 : 0,
                 transition: "opacity 0.3s ease",
+                overflow: "visible",
             }}
         >
             {showHeader && heading && (
